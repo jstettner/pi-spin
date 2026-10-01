@@ -1,0 +1,14 @@
+node_modules/
+coverage/
+*.log
+.env
+
+# Personal planning and scratch space
+.local/
+
+# Reference source for agents, cloned by `npm run repos`
+repos/
+
+# Personal Claude Code instructions and settings
+CLAUDE.local.md
+.claude/settings.local.json
