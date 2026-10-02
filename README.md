@@ -25,7 +25,7 @@ No model call or automatic agent turn is triggered. Escape from the mode menu re
 
 Run `/spin <what you want done>`, for example `/spin burn down all lint errors`, then choose what to carry between iterations (the same three modes as `/carry`).
 
-A setup agent then works out with you the task prompt to repeat, a check script that decides when the work is done, what the check may do (run commands, call a classifier) and the limits. Setup happens on its own branch, so the task never sees it. When you approve, the agent submits the proposal and Pi shows all of it, including the whole check script, for you to confirm.
+A setup agent then works out with you the task prompt to repeat, a check script that decides when the work is done, what the check may do (run commands, call a classifier) and the limits. Setup happens on its own branch, so the task never sees it. When you approve, the agent submits the proposal and Pi asks you to confirm, summarizing what the check may do and the limits. The task prompt and check script are not repeated in that dialog: review them in the conversation.
 
 Spin then runs the check once, and while it reports `continue`:
 

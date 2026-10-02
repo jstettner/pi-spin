@@ -204,16 +204,17 @@ test("the start tool rejects an invalid proposal without asking the user", async
   assert.equal(h.calls.length, 0);
 });
 
-test("the start tool shows the whole proposal, then passes it to Spin only if approved", async () => {
+test("the start tool summarizes the proposal, then passes it to Spin only if approved", async () => {
   const h = harness({ approval: { accepted: false, message: "A Spin is already running." } });
   h.answers.confirm = false;
   const declined = await h.tool(proposal());
   assert.equal(declined.content[0]!.text, "The user did not approve this proposal.");
   assert.equal(h.calls.length, 0);
   const shown = h.confirms[0]!.message;
-  for (const part of [proposal().task, checkSource, "can run ANY shell command", "Classifier: no", "10 iterations"]) {
+  for (const part of ["can run ANY shell command", "Classifier: no", "10 iterations"]) {
     assert.ok(shown.includes(part), `dialog shows ${part}`);
   }
+  assert.ok(!shown.includes(checkSource), "dialog omits the check script");
 
   h.answers.confirm = true;
   const rejected = await h.tool(proposal());

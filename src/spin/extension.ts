@@ -99,7 +99,7 @@ export function registerSpin(pi: ExtensionAPI, wiring: SpinWiring): void {
     parameters: Schema.toJsonSchemaDocument(SpinProposal, { onExcessProperty: "error" }).schema,
     // Declared to the model only while a /spin setup waits for a proposal (PiHost.setSetupTool).
     defaultActive: false,
-    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+    async execute(_toolCallId, params, signal, _onUpdate, ctx) {
       // JSON Schema cannot express every rule (the check snapshot, limits), so decode before
       // asking: the user only ever approves a valid proposal.
       const decoded = decodeProposal(params);
@@ -114,8 +114,9 @@ export function registerSpin(pi: ExtensionAPI, wiring: SpinWiring): void {
         return { content: [{ type: "text", text: message }], details: { accepted: false, message } };
       }
       // The user approves here, in the UI, so the agent cannot start a Spin on its own claim.
-      // Nothing is truncated: the dialog shows everything that will run.
-      const approved = ctx.hasUI && await ctx.ui.confirm("Start this Spin?", formatProposal(decoded.success));
+      // Pi's confirm cannot scroll, so it shows a summary; the setup agent shows the full proposal.
+      const approved = ctx.hasUI
+        && await ctx.ui.confirm("Start this Spin?", formatProposal(decoded.success), signal ? { signal } : {});
       const result = approved
         ? await run(Spin.use((spin) => spin.startApproved(decoded.success)), ctx)
         : { accepted: false, message: "The user did not approve this proposal." };
@@ -153,11 +154,10 @@ export function registerSpin(pi: ExtensionAPI, wiring: SpinWiring): void {
 
 const decodeProposal = Schema.decodeUnknownResult(SpinProposal, { onExcessProperty: "error", errors: "all" });
 
-/** Everything the user approves, in the order they need to judge it. */
+/** What the check may do and how long Spin runs. The task and script are in the conversation above. */
 export function formatProposal(proposal: SpinProposal): string {
   const { permissions, limits } = proposal;
   return [
-    `Task:\n  ${proposal.task.replaceAll("\n", "\n  ")}`,
     permissions.commands
       ? "Commands: YES. The check can run ANY shell command, unattended, on every iteration. Read the script."
       : "Commands: no",
@@ -165,8 +165,7 @@ export function formatProposal(proposal: SpinProposal): string {
     `Classifier: ${permissions.classifier ? "yes, models.classify (costs money per call)" : "no"}`,
     `Limits: ${limits.maxIterations} iterations, ${limits.maxDurationMs / 60_000} min total`
     + (limits.maxUnchangedProgress ? `, stop after ${limits.maxUnchangedProgress} checks without progress` : ""),
-    `Check script:\n${proposal.checkSource}`,
-  ].join("\n\n");
+  ].join("\n");
 }
 
 const stopForUser = (ctx: ExtensionCommandContext) =>
