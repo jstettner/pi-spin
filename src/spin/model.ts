@@ -22,7 +22,6 @@ export const HARD_LIMITS = {
   maxDurationMs: 24 * 60 * 60 * 1000,
   maxUnchangedProgress: 50,
   reason: 2_000,
-  evidenceBytes: 16 * 1024,
   fingerprint: 512,
   diagnostics: 8 * 1024,
 } as const;
@@ -50,7 +49,7 @@ export const SpinLimits = Schema.Struct({
   /** Stop after this many consecutive checks report an unchanged progress fingerprint. */
   maxUnchangedProgress: Schema.optionalKey(
     Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: HARD_LIMITS.maxUnchangedProgress }))
-      .annotate({ description: "Stop after this many consecutive checks return the same progress.fingerprint" }),
+      .annotate({ description: "Stop after this many consecutive checks return the same progressFingerprint" }),
   ),
 });
 export type SpinLimits = typeof SpinLimits.Type;
@@ -63,7 +62,7 @@ export const SpinProposal = Schema.Struct({
   task: Schema.String.check(Schema.isNonEmpty(), Schema.isMaxLength(HARD_LIMITS.task))
     .annotate({ description: "The prompt repeated from the anchor on every iteration" }),
   checkSource: Schema.String.check(Schema.isNonEmpty(), Schema.isMaxLength(HARD_LIMITS.checkSource)).annotate({
-    description: "Codemode script body (top-level await and return) returning { verdict, reason, evidence?, progress? }",
+    description: "Codemode script body (top-level await and return) returning { verdict, reason, progressFingerprint? }",
   }),
   permissions: CheckPermissions,
   limits: SpinLimits,
@@ -107,29 +106,24 @@ export const Verdict = Schema.Literals(["done", "continue", "blocked", "uncertai
 export type Verdict = typeof Verdict.Type;
 
 /**
- * The envelope a check script returns (trust boundary: the script). Evidence and progress are
- * check-defined. Unknown keys are rejected so a misspelt field cannot silently drop out of a
+ * The envelope a check script returns (trust boundary: the script). The reason is a short
+ * summary; the remaining work itself lives in the project, where the task reads it. The
+ * fingerprint is check-defined. Unknown keys are rejected so a misspelt field cannot silently drop out of a
  * stopping rule.
  */
 export const CheckVerdict = Schema.Struct({
   verdict: Verdict,
   reason: Schema.String.check(Schema.isNonEmpty(), Schema.isMaxLength(HARD_LIMITS.reason)),
-  /** JSON (no cycles, non-finite numbers or class instances), bounded by its UTF-8 size. */
-  evidence: Schema.optionalKey(Schema.Json.check(Schema.makeFilter((value) =>
-    new TextEncoder().encode(JSON.stringify(value)).length <= HARD_LIMITS.evidenceBytes
-    || `must serialize to at most ${HARD_LIMITS.evidenceBytes} bytes of JSON`
-  ))),
-  /** Equal fingerprints mean no progress; Spin never compares them any other way. */
-  progress: Schema.optionalKey(Schema.Struct({
-    fingerprint: Schema.String.check(Schema.isNonEmpty(), Schema.isMaxLength(HARD_LIMITS.fingerprint)),
-  })),
+  /** Computed by the check from what remains. Equal fingerprints mean no progress; Spin never compares them any other way. */
+  progressFingerprint: Schema.optionalKey(
+    Schema.String.check(Schema.isNonEmpty(), Schema.isMaxLength(HARD_LIMITS.fingerprint)),
+  ),
 });
 export type CheckVerdict = typeof CheckVerdict.Type;
 
 /** What the script sees as the read-only `spin` global. */
 export const CheckInput = Schema.Struct({
   iteration: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
-  previous: Schema.optionalKey(CheckVerdict),
 });
 export type CheckInput = typeof CheckInput.Type;
 
@@ -182,8 +176,17 @@ export const SpinRunState = Schema.Struct({
 });
 export type SpinRunState = typeof SpinRunState.Type;
 
+/**
+ * Marks the invocation leaf. Setup branches from it and launch returns to it: navigation lands
+ * exactly on custom entries, but on the parent of a user or `custom_message` entry.
+ */
+export const ANCHOR_ENTRY = "spin-anchor";
 export const DEFINITION_ENTRY = "spin-definition";
 export const STATE_ENTRY = "spin-state";
+
+/** Custom message types Spin sends into model context. */
+export const SETUP_MESSAGE = "spin-setup";
+export const FEEDBACK_MESSAGE = "spin-feedback";
 
 /** `data` of a `spin-definition` entry: the definition and revision 0. */
 export const DefinitionEntryData = Schema.Struct({
@@ -254,6 +257,11 @@ export interface BeginRequest {
   readonly invocation: SessionPosition;
   readonly intent: string;
   readonly carryMode: CarryMode;
+}
+
+export interface NavigateRequest {
+  readonly targetId: string;
+  readonly expected: SessionPosition;
 }
 
 /** One iteration's start: rewind, attach carry and feedback, submit the task. */

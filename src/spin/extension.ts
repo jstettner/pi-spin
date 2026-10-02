@@ -8,6 +8,8 @@ import { Effect, type Layer, ManagedRuntime, Result, Schema } from "effect";
 import { selectCarryMode } from "../carry-core.ts";
 import { CurrentInvocation } from "./invocation.ts";
 import { type HostEvent, SpinProposal } from "./model.ts";
+import { CONTINUE_COMMAND } from "./pi-host.ts";
+import { START_TOOL } from "./setup.ts";
 import { Spin } from "./spin.ts";
 
 // The Pi side of /spin: thin Promise/callback adapters that turn commands, the setup tool and
@@ -15,8 +17,7 @@ import { Spin } from "./spin.ts";
 
 export const SPIN_COMMAND = "spin";
 /** Internal. Scheduled by PiHost.scheduleContinuation; the only way back into a command context. */
-export const CONTINUE_COMMAND = "spin-continue";
-export const START_TOOL = "spin_start";
+export { CONTINUE_COMMAND, START_TOOL };
 
 export interface SpinWiring {
   /** Builds Spin with its services. Called once per session runtime. */
@@ -96,12 +97,20 @@ export function registerSpin(pi: ExtensionAPI, wiring: SpinWiring): void {
     // Plain JSON Schema derived from SpinProposal, rejecting unknown keys like the decode below.
     // `params` is unknown: Pi's validator cannot check everything, so that decode is authoritative.
     parameters: Schema.toJsonSchemaDocument(SpinProposal, { onExcessProperty: "error" }).schema,
+    // Declared to the model only while a /spin setup waits for a proposal (PiHost.setSetupTool).
+    defaultActive: false,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       // JSON Schema cannot express every rule (the check snapshot, limits), so decode before
       // asking: the user only ever approves a valid proposal.
       const decoded = decodeProposal(params);
       if (Result.isFailure(decoded)) {
         const message = `Invalid proposal: ${decoded.failure.message}`;
+        return { content: [{ type: "text", text: message }], details: { accepted: false, message } };
+      }
+      // Registered for every conversation; outside setup there is nothing to confirm.
+      const { phase } = await run(Spin.use((spin) => spin.summary), ctx);
+      if (phase !== "setup") {
+        const message = `No /${SPIN_COMMAND} setup is waiting for a proposal.`;
         return { content: [{ type: "text", text: message }], details: { accepted: false, message } };
       }
       // The user approves here, in the UI, so the agent cannot start a Spin on its own claim.

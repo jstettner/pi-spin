@@ -6,7 +6,7 @@ import { CARRY_MODES } from "../src/carry-core.ts";
 import { SpinRejected } from "../src/spin/errors.ts";
 import { CONTINUE_COMMAND, registerSpin, SPIN_COMMAND, START_TOOL } from "../src/spin/extension.ts";
 import { CurrentInvocation } from "../src/spin/invocation.ts";
-import type { ApprovalResult } from "../src/spin/model.ts";
+import type { ApprovalResult, SpinSummary } from "../src/spin/model.ts";
 import { SpinProposal } from "../src/spin/model.ts";
 import { Spin } from "../src/spin/spin.ts";
 import { checkSource, proposal } from "./spin-fixtures.ts";
@@ -23,7 +23,7 @@ interface Call {
 
 type Handler = (...args: never[]) => unknown;
 
-function harness(options: { reject?: string; approval?: ApprovalResult } = {}) {
+function harness(options: { reject?: string; approval?: ApprovalResult; phase?: SpinSummary["phase"] } = {}) {
   const calls: Call[] = [];
   const notifications: Array<{ text: string; level: string }> = [];
   const selections: string[][] = [];
@@ -56,7 +56,7 @@ function harness(options: { reject?: string; approval?: ApprovalResult } = {}) {
             yield* record("stop", reason);
             if (options.reject) return yield* new SpinRejected({ message: options.reject });
           }),
-          summary: Effect.succeed({ phase: "idle" }),
+          summary: Effect.succeed({ phase: options.phase ?? "setup" }),
         });
       }),
     );
@@ -219,6 +219,14 @@ test("the start tool shows the whole proposal, then passes it to Spin only if ap
   const rejected = await h.tool(proposal());
   assert.equal(rejected.content[0]!.text, "A Spin is already running.");
   assert.deepEqual(h.calls.map((call) => [call.method, call.arg, call.command]), [["startApproved", proposal(), undefined]]);
+});
+
+test("outside setup the start tool neither asks the user nor calls Spin", async () => {
+  const h = harness({ phase: "running" });
+  const result = await h.tool(proposal());
+  assert.equal(result.content[0]!.text, "No /spin setup is waiting for a proposal.");
+  assert.deepEqual(h.confirms, []);
+  assert.equal(h.calls.length, 0);
 });
 
 test("the start tool's parameters are the proposal schema", () => {

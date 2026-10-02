@@ -70,11 +70,11 @@ describe("verdicts", () => {
         console.log("checking");
         const plan = await tools.read({ path: "docs/plan.md" });
         const open = plan.split("\\n").filter((line) => line.startsWith("- [ ]")).length;
-        return { verdict: open ? "continue" : "done", reason: open + " open", progress: { fingerprint: plan } };`,
+        return { verdict: open ? "continue" : "done", reason: open + " open", progressFingerprint: plan };`,
         { input: { iteration: 3 } });
       assert.strictEqual(record.iteration, 3);
       assert.deepStrictEqual(record.verdict, {
-        verdict: "continue", reason: "1 open", progress: { fingerprint: "- [x] A\n- [ ] B\n" },
+        verdict: "continue", reason: "1 open", progressFingerprint: "- [x] A\n- [ ] B\n",
       });
       assert.strictEqual(record.diagnostics, "checking");
       assert.strictEqual(record.classifierCalls, 0);
@@ -84,12 +84,11 @@ describe("verdicts", () => {
 
   it.live("exposes the check input as a frozen spin global", () =>
     Effect.gen(function*() {
-      const previous = { verdict: "continue", reason: "last time" } as const;
       const record = yield* evaluate(`
-        spin.previous.reason = "changed";
-        return { verdict: "continue", reason: spin.iteration + ":" + spin.previous.reason + ":" + Object.isFrozen(spin.previous) };`,
-        { input: { iteration: 2, previous } });
-      assert.strictEqual(record.verdict.reason, "2:last time:true");
+        spin.iteration = 9;
+        return { verdict: "continue", reason: spin.iteration + ":" + Object.isFrozen(spin) };`,
+        { input: { iteration: 2 } });
+      assert.strictEqual(record.verdict.reason, "2:true");
     }));
 
   it.live("keeps line numbers with and without an options header", () =>
@@ -103,7 +102,7 @@ describe("verdicts", () => {
   it.live("a malformed envelope fails as a verdict error, never as a verdict", () =>
     Effect.gen(function*() {
       for (const value of [`undefined`, `"done"`, `{ verdict: "finished", reason: "x" }`, `{ verdict: "done", reason: "x", extra: 1 }`,
-        `{ verdict: "done", reason: "x", evidence: { blob: "${"x".repeat(HARD_LIMITS.evidenceBytes)}" } }`]) {
+        `{ verdict: "done", reason: "${"x".repeat(HARD_LIMITS.reason + 1)}" }`]) {
         const error = yield* fails(`return ${value};`);
         assert.strictEqual(error.kind, "verdict", value.slice(0, 40));
       }
@@ -211,8 +210,8 @@ describe("Pi's read-only tools", () => {
         const listing = await tools.ls({ path: "docs" });
         const hits = await tools.grep({ pattern: "- [ ]", path: "docs", literal: true });
         const found = await tools.find({ pattern: "*.md", path: "docs" });
-        return { verdict: "done", reason: "x", evidence: { names, listing, hits, found } };`);
-      const evidence = record.verdict.evidence as Record<string, string>;
+        return { verdict: "done", reason: JSON.stringify({ names, listing, hits, found }) };`);
+      const evidence = JSON.parse(record.verdict.reason) as Record<string, string>;
       assert.strictEqual(evidence.names, "bash,find,grep,ls,read");
       assert.match(evidence.listing!, /plan\.md/);
       assert.match(evidence.hits!, /plan\.md.*- \[ \] B/);
@@ -233,8 +232,8 @@ describe("tools.bash", () => {
       const record = yield* evaluate(`
         const run = await tools.bash({ command: ${JSON.stringify(lint)} });
         const echo = await tools.bash({ command: "echo hi && pwd" });
-        return { verdict: "continue", reason: "lint", evidence: { run, echo: echo.stdout } };`);
-      assert.deepStrictEqual(record.verdict.evidence, {
+        return { verdict: "continue", reason: JSON.stringify({ run, echo: echo.stdout }) };`);
+      assert.deepStrictEqual(JSON.parse(record.verdict.reason), {
         run: { exit_code: 1, signal: null, stdout: "{\"errors\":2}\n", stderr: "warn\n", truncated: false },
         echo: `hi\n${realpathSync(cwd)}\n`,
       });

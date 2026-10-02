@@ -98,8 +98,7 @@ describe("verdict", () => {
       const full = {
         verdict: "continue",
         reason: "3 lint errors remain.",
-        evidence: { errors: 3, files: ["a.ts", "b.ts"], ok: false, note: null },
-        progress: { fingerprint: "a.ts:1|b.ts:4" },
+        progressFingerprint: "a.ts:1|b.ts:4",
       } as const;
       assert.deepStrictEqual(yield* decodeVerdict(full), full);
     }));
@@ -111,23 +110,10 @@ describe("verdict", () => {
       assert.match(yield* verdictError({ verdict: "done" }), /reason/);
       assert.match(yield* verdictError({ verdict: "done", reason: "" }), /reason/);
       assert.match(yield* verdictError({ verdict: "done", reason: "x".repeat(HARD_LIMITS.reason + 1) }), /reason/);
-      assert.match(yield* verdictError({ verdict: "done", reason: "ok", summary: "typo for evidence" }), /summary/);
-      assert.match(yield* verdictError({ verdict: "done", reason: "ok", progress: { fingerprint: "" } }), /fingerprint/);
-      assert.match(yield* verdictError({ verdict: "done", reason: "ok", progress: 3 }), /progress/);
-    }));
-
-  it.effect("bounds evidence and requires plain JSON", () =>
-    Effect.gen(function*() {
-      const big = { log: "x".repeat(HARD_LIMITS.evidenceBytes) };
-      assert.match(yield* verdictError({ verdict: "done", reason: "ok", evidence: big }), /at most 16384 bytes/);
-      // Multi-byte characters count as bytes, not UTF-16 units.
-      const wide = { log: "é".repeat(HARD_LIMITS.evidenceBytes / 2) };
-      assert.match(yield* verdictError({ verdict: "done", reason: "ok", evidence: wide }), /bytes/);
-      const cyclic: Record<string, unknown> = {};
-      cyclic.self = cyclic;
-      for (const evidence of [Number.NaN, Number.POSITIVE_INFINITY, new Date(0), cyclic, { f: () => 1 }, [undefined]]) {
-        assert.match(yield* verdictError({ verdict: "done", reason: "ok", evidence }), /evidence/);
-      }
+      assert.match(yield* verdictError({ verdict: "done", reason: "ok", summary: "typo for reason" }), /summary/);
+      assert.match(yield* verdictError({ verdict: "done", reason: "ok", evidence: { errors: 3 } }), /evidence/);
+      assert.match(yield* verdictError({ verdict: "done", reason: "ok", progressFingerprint: "" }), /progressFingerprint/);
+      assert.match(yield* verdictError({ verdict: "done", reason: "ok", progress: { fingerprint: "a" } }), /progress/);
     }));
 });
 
