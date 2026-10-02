@@ -1,13 +1,15 @@
 import assert from "node:assert/strict";
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { Effect, Layer } from "effect";
+import { Effect, Layer, Schema } from "effect";
 import { test } from "vitest";
 import { CARRY_MODES } from "../src/carry-core.ts";
 import { SpinRejected } from "../src/spin/errors.ts";
 import { CONTINUE_COMMAND, registerSpin, SPIN_COMMAND, START_TOOL } from "../src/spin/extension.ts";
 import { CurrentInvocation } from "../src/spin/invocation.ts";
 import type { ApprovalResult } from "../src/spin/model.ts";
+import { SpinProposal } from "../src/spin/model.ts";
 import { Spin } from "../src/spin/spin.ts";
+import { checkSource, proposal } from "./spin-fixtures.ts";
 
 // Drives registerSpin through a fake ExtensionAPI and a fake Spin layer that records each call
 // and the invocation context it ran with.
@@ -25,6 +27,7 @@ function harness(options: { reject?: string; approval?: ApprovalResult } = {}) {
   const calls: Call[] = [];
   const notifications: Array<{ text: string; level: string }> = [];
   const selections: string[][] = [];
+  const confirms: Array<{ title: string; message: string }> = [];
   let layersBuilt = 0;
   let disposed = 0;
 
@@ -59,11 +62,11 @@ function harness(options: { reject?: string; approval?: ApprovalResult } = {}) {
     );
 
   const commands = new Map<string, { handler: (args: string, ctx: ExtensionCommandContext) => Promise<void> }>();
-  const tools = new Map<string, { execute: Handler }>();
+  const tools = new Map<string, { execute: Handler; parameters: unknown }>();
   const handlers = new Map<string, Handler>();
   const pi = {
     registerCommand: (name: string, command: never) => commands.set(name, command),
-    registerTool: (tool: { name: string; execute: Handler }) => tools.set(tool.name, tool),
+    registerTool: (tool: { name: string; execute: Handler; parameters: unknown }) => tools.set(tool.name, tool),
     on: (event: string, handler: Handler) => handlers.set(event, handler),
   } as unknown as ExtensionAPI;
   registerSpin(pi, { layer });
@@ -80,7 +83,10 @@ function harness(options: { reject?: string; approval?: ApprovalResult } = {}) {
       return answers.select;
     },
     input: async () => answers.input,
-    confirm: async () => answers.confirm,
+    confirm: async (title: string, message: string) => {
+      confirms.push({ title, message });
+      return answers.confirm;
+    },
   };
   const session = { getLeafId: () => "anchor", getSessionId: () => "session-1" };
   const ctx = {
@@ -93,12 +99,13 @@ function harness(options: { reject?: string; approval?: ApprovalResult } = {}) {
   const command = (name: string, args: string) => commands.get(name)!.handler(args, ctx);
   const emit = (event: string, payload: object, context: ExtensionContext = ctx) =>
     (handlers.get(event) as (event: object, ctx: ExtensionContext) => Promise<unknown>)(payload, context);
+  const toolParameters = () => (tools.get(START_TOOL) as unknown as { parameters: unknown }).parameters;
   const tool = (params: object) =>
     (tools.get(START_TOOL)!.execute as (...args: unknown[]) => Promise<{ content: Array<{ text: string }> }>)(
       "call-1", params, undefined, undefined, ctx,
     );
   return {
-    ctx, calls, notifications, selections, answers, command, emit, tool,
+    ctx, calls, notifications, selections, confirms, answers, command, emit, tool, toolParameters,
     get layersBuilt() { return layersBuilt; },
     get disposed() { return disposed; },
   };
@@ -186,17 +193,37 @@ test("lifecycle events reach Spin as host events without a command context", asy
   assert.equal(h.layersBuilt, 1);
 });
 
-test("the start tool asks the user before passing the proposal to Spin", async () => {
-  const h = harness({ approval: { accepted: false, message: "Check source is empty." } });
+test("the start tool rejects an invalid proposal without asking the user", async () => {
+  const h = harness();
+  const bad = { ...proposal(), capabilities: { readPaths: ["../secrets"], commands: [] }, carryMode: "all" };
+  const result = await h.tool(bad);
+  assert.match(result.content[0]!.text, /^Invalid proposal: /);
+  assert.match(result.content[0]!.text, /'\.\.' segments/);
+  assert.match(result.content[0]!.text, /carryMode/);
+  assert.deepEqual(h.confirms, []);
+  assert.equal(h.calls.length, 0);
+});
+
+test("the start tool shows the whole proposal, then passes it to Spin only if approved", async () => {
+  const h = harness({ approval: { accepted: false, message: "A Spin is already running." } });
   h.answers.confirm = false;
-  const declined = await h.tool({ proposal: { task: "t" } });
+  const declined = await h.tool(proposal());
   assert.equal(declined.content[0]!.text, "The user did not approve this proposal.");
   assert.equal(h.calls.length, 0);
+  const shown = h.confirms[0]!.message;
+  for (const part of [proposal().task, checkSource, "npm run lint -- --format json", "  src", "Classifier: no", "10 iterations"]) {
+    assert.ok(shown.includes(part), `dialog shows ${part}`);
+  }
 
   h.answers.confirm = true;
-  const rejected = await h.tool({ proposal: { task: "t" } });
-  assert.equal(rejected.content[0]!.text, "Check source is empty.");
-  assert.deepEqual(h.calls.map((call) => [call.method, call.arg, call.command]), [["startApproved", { task: "t" }, undefined]]);
+  const rejected = await h.tool(proposal());
+  assert.equal(rejected.content[0]!.text, "A Spin is already running.");
+  assert.deepEqual(h.calls.map((call) => [call.method, call.arg, call.command]), [["startApproved", proposal(), undefined]]);
+});
+
+test("the start tool's parameters are the proposal schema", () => {
+  const h = harness();
+  assert.deepEqual(h.toolParameters(), Schema.toJsonSchemaDocument(SpinProposal, { onExcessProperty: "error" }).schema);
 });
 
 test("session shutdown stops the Spin and disposes the runtime; the next use builds a new one", async () => {

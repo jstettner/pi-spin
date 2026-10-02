@@ -4,11 +4,10 @@ import type {
   ExtensionCommandContext,
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import { Effect, type Layer, ManagedRuntime } from "effect";
-import { Type } from "typebox";
+import { Effect, type Layer, ManagedRuntime, Result, Schema } from "effect";
 import { selectCarryMode } from "../carry-core.ts";
 import { CurrentInvocation } from "./invocation.ts";
-import type { HostEvent } from "./model.ts";
+import { type HostEvent, SpinProposal } from "./model.ts";
 import { Spin } from "./spin.ts";
 
 // The Pi side of /spin: thin Promise/callback adapters that turn commands, the setup tool and
@@ -94,16 +93,22 @@ export function registerSpin(pi: ExtensionAPI, wiring: SpinWiring): void {
     name: START_TOOL,
     label: "Start Spin",
     description: `Save and start the Spin proposal the user approved during /${SPIN_COMMAND} setup.`,
-    // Loose until the schema milestone; Spin.startApproved validates the proposal.
-    parameters: Type.Object({ proposal: Type.Unknown({ description: "The approved Spin proposal" }) }),
+    // Plain JSON Schema derived from SpinProposal, rejecting unknown keys like the decode below.
+    // `params` is unknown: Pi's validator cannot check everything, so that decode is authoritative.
+    parameters: Schema.toJsonSchemaDocument(SpinProposal, { onExcessProperty: "error" }).schema,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      // JSON Schema cannot express every rule (relative paths, single-line commands), so
+      // decode before asking: the user only ever approves a valid proposal.
+      const decoded = decodeProposal(params);
+      if (Result.isFailure(decoded)) {
+        const message = `Invalid proposal: ${decoded.failure.message}`;
+        return { content: [{ type: "text", text: message }], details: { accepted: false, message } };
+      }
       // The user approves here, in the UI, so the agent cannot start a Spin on its own claim.
-      const approved = ctx.hasUI && await ctx.ui.confirm(
-        "Start this Spin?",
-        JSON.stringify(params.proposal, null, 2).slice(0, 4000),
-      );
+      // Nothing is truncated: the dialog shows everything that will run.
+      const approved = ctx.hasUI && await ctx.ui.confirm("Start this Spin?", formatProposal(decoded.success));
       const result = approved
-        ? await run(Spin.use((spin) => spin.startApproved(params.proposal)), ctx)
+        ? await run(Spin.use((spin) => spin.startApproved(decoded.success)), ctx)
         : { accepted: false, message: "The user did not approve this proposal." };
       return { content: [{ type: "text", text: result.message }], details: { ...result } };
     },
@@ -135,6 +140,24 @@ export function registerSpin(pi: ExtensionAPI, wiring: SpinWiring): void {
       await current.dispose();
     }
   });
+}
+
+const decodeProposal = Schema.decodeUnknownResult(SpinProposal, { onExcessProperty: "error", errors: "all" });
+
+/** Everything the user approves, in the order they need to judge it. */
+export function formatProposal(proposal: SpinProposal): string {
+  const { capabilities: caps, limits } = proposal;
+  const list = (items: ReadonlyArray<string>) => items.length === 0 ? "  (none)" : items.map((item) => `  ${item}`).join("\n");
+  return [
+    `Task:\n  ${proposal.task.replaceAll("\n", "\n  ")}`,
+    `Commands the check may run (not read-only):\n${list(caps.commands)}`,
+    `Paths the check may read:\n${list(caps.readPaths)}`,
+    `Classifier: ${caps.classifier ? `up to ${caps.classifier.maxCallsPerCheck} calls per check` : "no"}`,
+    `Limits: ${limits.maxIterations} iterations, ${limits.maxDurationMs / 60_000} min total, `
+    + `${limits.checkTimeoutMs / 1000} s per check`
+    + (limits.maxUnchangedProgress ? `, stop after ${limits.maxUnchangedProgress} checks without progress` : ""),
+    `Check script:\n${proposal.checkSource}`,
+  ].join("\n\n");
 }
 
 const stopForUser = (ctx: ExtensionCommandContext) =>
