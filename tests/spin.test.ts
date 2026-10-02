@@ -49,7 +49,7 @@ const verdict = (value: CheckVerdict["verdict"], extra: Partial<CheckVerdict> = 
 
 type Step = CheckVerdict | Effect.Effect<EvaluationRecord, CheckFailed>;
 
-function world(options: { steps?: Step[]; anchor?: "assistant" | "carry" } = {}) {
+function world(options: { steps?: Step[]; anchor?: "assistant" | "carry"; navigationAppend?: "state" | "message" | "other-branch" } = {}) {
   const manager = SessionManager.inMemory("/synthetic/project");
   manager.appendMessage(user("Earlier context."));
   manager.appendMessage(assistant("Earlier reply."));
@@ -103,6 +103,9 @@ function world(options: { steps?: Step[]; anchor?: "assistant" | "carry" } = {})
       const leafId = toParent ? target.parentId : targetId;
       if (leafId === null) manager.resetLeaf();
       else manager.branch(leafId);
+      if (options.navigationAppend === "state") manager.appendCustomEntry("synthetic-plugin-state", { phase: "idle" });
+      if (options.navigationAppend === "message") manager.appendMessage(user("Unexpected input during navigation."));
+      if (options.navigationAppend === "other-branch") manager.branch(invocation.leafId);
       return { cancelled: false };
     },
   } as unknown as ExtensionCommandContext;
@@ -180,6 +183,29 @@ const provide = (w: ReturnType<typeof world>) => Effect.provide(w.layer);
 const task = proposal().task;
 
 describe("Spin", () => {
+  it.effect("navigation preserves extension-only state appended by session_tree handlers", () => {
+    const w = world({ navigationAppend: "state", steps: [verdict("continue"), verdict("done")] });
+    return Effect.gen(function*() {
+      yield* w.launch();
+      assert.strictEqual(w.state.submitted.at(-1), task);
+      yield* w.continueWith(yield* w.runTask("Completed work."));
+      assert.strictEqual(w.lastState().state.status._tag, "completed");
+      assert.isTrue(w.manager.getBranch().some((entry) => entry.type === "custom" && entry.customType === "synthetic-plugin-state"));
+    }).pipe(provide(w));
+  });
+
+  for (const navigationAppend of ["message", "other-branch"] as const) {
+    it.effect(`navigation still rejects ${navigationAppend} changes`, () => {
+      const w = world({ navigationAppend });
+      return Effect.gen(function*() {
+        yield* w.launch();
+        assert.strictEqual(w.spinEntries().length, 0);
+        assert.strictEqual(w.state.submitted.length, 1); // setup only
+        assert.isTrue(w.state.notifications.some(({ text }) => text.includes("different tree position")));
+      }).pipe(provide(w));
+    });
+  }
+
   it.effect("runs setup on a branch, then repeats the task from the definition entry until the check is done", () => {
     const w = world({ steps: [verdict("continue"), verdict("continue", { reason: "3 errors remain." }), verdict("done")] });
     return Effect.gen(function*() {

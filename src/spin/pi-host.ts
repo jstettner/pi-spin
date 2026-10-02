@@ -91,7 +91,14 @@ function makePiHost(pi: ExtensionAPI): PiHost["Service"] {
       catch: (error) => new HostActionFailed({ action: "navigate", message: error instanceof Error ? error.message : String(error) }),
     });
     if (result.cancelled) return yield* new HostActionFailed({ action: "navigate", message: "Navigation was cancelled." });
-    if (sessionManager.getLeafId() !== request.targetId) {
+    // session_tree handlers may append non-context extension state (e.g. Plannotator).
+    // Accept only custom-entry descendants of the target, never new conversation content
+    // or another branch. Keep their state instead of navigating again and retriggering them.
+    const branch = sessionManager.getBranch();
+    const targetIndex = branch.findIndex((entry) => entry.id === request.targetId);
+    if (sessionManager.getSessionId() !== request.expected.sessionId
+      || targetIndex === -1
+      || branch.slice(targetIndex + 1).some((entry) => entry.type !== "custom")) {
       return yield* new HostActionFailed({ action: "navigate", message: "Navigation landed on a different tree position." });
     }
     if (!ctx.isIdle() || ctx.hasPendingMessages()) {
