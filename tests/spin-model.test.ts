@@ -25,7 +25,7 @@ const rejects = (value: unknown, pattern: RegExp) => {
   assert.strictEqual(result._tag, "Failure");
   if (result._tag === "Failure") assert.match(result.failure.message, pattern);
 };
-const withCapabilities = (capabilities: object) => ({ ...proposal(), capabilities: { ...proposal().capabilities, ...capabilities } });
+const withPermissions = (permissions: object) => ({ ...proposal(), permissions: { ...proposal().permissions, ...permissions } });
 const withLimits = (limits: object) => ({ ...proposal(), limits: { ...proposal().limits, ...limits } });
 
 describe("proposal", () => {
@@ -37,23 +37,18 @@ describe("proposal", () => {
 
   it("rejects limits above the hard caps instead of clamping them", () => {
     rejects(withLimits({ maxIterations: HARD_LIMITS.maxIterations + 1 }), /maxIterations/);
-    rejects(withLimits({ checkTimeoutMs: HARD_LIMITS.checkTimeoutMs + 1 }), /checkTimeoutMs/);
+    rejects(withLimits({ checkTimeoutMs: 60_000 }), /checkTimeoutMs/);
     rejects(withLimits({ maxDurationMs: HARD_LIMITS.maxDurationMs + 1 }), /maxDurationMs/);
     rejects(withLimits({ maxIterations: 1.5 }), /maxIterations/);
-    rejects(withCapabilities({ classifier: { maxCallsPerCheck: HARD_LIMITS.classifierCalls + 1 } }), /maxCallsPerCheck/);
   });
 
-  it("only allows read paths inside the working directory", () => {
-    for (const path of ["/etc/passwd", "~/.ssh", "C:\\Windows", "\\\\server\\share", "src/../../secrets", ".."]) {
-      rejects(withCapabilities({ readPaths: [path] }), /readPaths/);
-    }
-    assert.strictEqual(decodeProposal(withCapabilities({ readPaths: ["src/..hidden", ".config/x", "a/b.c"] }))._tag, "Success");
-  });
-
-  it("only allows single-line commands", () => {
-    rejects(withCapabilities({ commands: ["npm test\nrm -rf ."] }), /single line/);
-    rejects(withCapabilities({ commands: [""] }), /commands/);
-    rejects(withCapabilities({ commands: Array.from({ length: HARD_LIMITS.commands + 1 }, (_, i) => `echo ${i}`) }), /commands/);
+  it("takes commands and the classifier as switches", () => {
+    rejects(withPermissions({ commands: ["npm test"] }), /commands/);
+    rejects({ ...proposal(), permissions: {} }, /commands/);
+    rejects(withPermissions({ readPaths: ["src"] }), /readPaths/);
+    rejects(withPermissions({ classifier: { maxCallsPerCheck: 3 } }), /classifier/);
+    rejects({ ...proposal(), permissions: { commands: true } }, /classifier/);
+    assert.strictEqual(decodeProposal(withPermissions({ commands: false, classifier: true }))._tag, "Success");
   });
 
   it("rejects fields the agent may not set and missing ones", () => {
@@ -82,7 +77,7 @@ describe("proposal", () => {
     const schema = document.schema;
     const validator = Compile(Type.Unsafe(schema));
     assert.isTrue(validator.Check(proposal()));
-    assert.isTrue(validator.Check(withCapabilities({ classifier: { maxCallsPerCheck: 3 } })));
+    assert.isTrue(validator.Check(withPermissions({ classifier: true })));
     assert.isFalse(validator.Check(withLimits({ maxIterations: HARD_LIMITS.maxIterations + 1 })));
     assert.isFalse(validator.Check({ ...proposal(), carryMode: "all" }));
     assert.isFalse(validator.Check({ ...proposal(), task: "" }));
@@ -141,7 +136,7 @@ describe("session entries", () => {
     ...fixed,
     task: proposal().task,
     check: snapshotCheck(checkSource),
-    capabilities: proposal().capabilities,
+    permissions: proposal().permissions,
     limits: proposal().limits,
   });
   const state: SpinRunState = {

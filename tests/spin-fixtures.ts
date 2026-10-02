@@ -7,9 +7,9 @@ return { verdict: run.exit_code === 0 ? "done" : "continue", reason: "Synthetic 
 export const proposal = () => ({
   task: "Fix a batch of lint errors without adding suppressions.",
   checkSource,
-  capabilities: {
-    readPaths: ["src", "docs/plan.md"],
-    commands: ["npm run lint -- --format json"],
+  permissions: {
+    commands: true,
+    classifier: false,
   },
-  limits: { maxIterations: 10, maxDurationMs: 3_600_000, checkTimeoutMs: 60_000 },
+  limits: { maxIterations: 10, maxDurationMs: 3_600_000 },
 });

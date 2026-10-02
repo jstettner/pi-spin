@@ -195,10 +195,10 @@ test("lifecycle events reach Spin as host events without a command context", asy
 
 test("the start tool rejects an invalid proposal without asking the user", async () => {
   const h = harness();
-  const bad = { ...proposal(), capabilities: { readPaths: ["../secrets"], commands: [] }, carryMode: "all" };
+  const bad = { ...proposal(), permissions: { readPaths: ["../secrets"], commands: true }, carryMode: "all" };
   const result = await h.tool(bad);
   assert.match(result.content[0]!.text, /^Invalid proposal: /);
-  assert.match(result.content[0]!.text, /'\.\.' segments/);
+  assert.match(result.content[0]!.text, /readPaths/);
   assert.match(result.content[0]!.text, /carryMode/);
   assert.deepEqual(h.confirms, []);
   assert.equal(h.calls.length, 0);
@@ -211,7 +211,7 @@ test("the start tool shows the whole proposal, then passes it to Spin only if ap
   assert.equal(declined.content[0]!.text, "The user did not approve this proposal.");
   assert.equal(h.calls.length, 0);
   const shown = h.confirms[0]!.message;
-  for (const part of [proposal().task, checkSource, "npm run lint -- --format json", "  src", "Classifier: no", "10 iterations"]) {
+  for (const part of [proposal().task, checkSource, "can run ANY shell command", "Classifier: no", "10 iterations"]) {
     assert.ok(shown.includes(part), `dialog shows ${part}`);
   }
 

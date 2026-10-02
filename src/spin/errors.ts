@@ -33,11 +33,17 @@ export class MalformedRecord extends Schema.TaggedError<MalformedRecord>()("Malf
 
 export type StoreError = RecordNotFound | RevisionConflict | MalformedRecord;
 
-/** The check did not produce a valid verdict: script error, timeout, classifier failure or bad envelope. */
+/**
+ * The check did not produce a valid verdict: script error, timeout, classifier failure, bad
+ * envelope, or a sandbox that could not run. Classifier usage is
+ * reported here too, since a failed check still spent it.
+ */
 export class CheckFailed extends Schema.TaggedError<CheckFailed>()("CheckFailed", {
-  kind: Schema.Literals(["script", "timeout", "classifier", "verdict", "capability"]),
+  kind: Schema.Literals(["script", "timeout", "classifier", "verdict", "sandbox"]),
   message: Schema.String,
   diagnostics: Schema.optionalKey(Schema.String),
+  classifierCalls: Schema.optionalKey(Schema.Int),
+  costUsd: Schema.optionalKey(Schema.Finite),
 }) {}
 
 /** A Spin operation was called in a phase that does not allow it. */

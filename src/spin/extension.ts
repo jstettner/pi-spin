@@ -97,8 +97,8 @@ export function registerSpin(pi: ExtensionAPI, wiring: SpinWiring): void {
     // `params` is unknown: Pi's validator cannot check everything, so that decode is authoritative.
     parameters: Schema.toJsonSchemaDocument(SpinProposal, { onExcessProperty: "error" }).schema,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      // JSON Schema cannot express every rule (relative paths, single-line commands), so
-      // decode before asking: the user only ever approves a valid proposal.
+      // JSON Schema cannot express every rule (the check snapshot, limits), so decode before
+      // asking: the user only ever approves a valid proposal.
       const decoded = decodeProposal(params);
       if (Result.isFailure(decoded)) {
         const message = `Invalid proposal: ${decoded.failure.message}`;
@@ -146,15 +146,15 @@ const decodeProposal = Schema.decodeUnknownResult(SpinProposal, { onExcessProper
 
 /** Everything the user approves, in the order they need to judge it. */
 export function formatProposal(proposal: SpinProposal): string {
-  const { capabilities: caps, limits } = proposal;
-  const list = (items: ReadonlyArray<string>) => items.length === 0 ? "  (none)" : items.map((item) => `  ${item}`).join("\n");
+  const { permissions, limits } = proposal;
   return [
     `Task:\n  ${proposal.task.replaceAll("\n", "\n  ")}`,
-    `Commands the check may run (not read-only):\n${list(caps.commands)}`,
-    `Paths the check may read:\n${list(caps.readPaths)}`,
-    `Classifier: ${caps.classifier ? `up to ${caps.classifier.maxCallsPerCheck} calls per check` : "no"}`,
-    `Limits: ${limits.maxIterations} iterations, ${limits.maxDurationMs / 60_000} min total, `
-    + `${limits.checkTimeoutMs / 1000} s per check`
+    permissions.commands
+      ? "Commands: YES. The check can run ANY shell command, unattended, on every iteration. Read the script."
+      : "Commands: no",
+    "Reads: the check can read any file and use Pi's grep, find and ls.",
+    `Classifier: ${permissions.classifier ? "yes, models.classify (costs money per call)" : "no"}`,
+    `Limits: ${limits.maxIterations} iterations, ${limits.maxDurationMs / 60_000} min total`
     + (limits.maxUnchangedProgress ? `, stop after ${limits.maxUnchangedProgress} checks without progress` : ""),
     `Check script:\n${proposal.checkSource}`,
   ].join("\n\n");

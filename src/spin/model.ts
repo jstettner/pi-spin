@@ -21,10 +21,6 @@ export const HARD_LIMITS = {
   maxIterations: 200,
   maxDurationMs: 24 * 60 * 60 * 1000,
   maxUnchangedProgress: 50,
-  checkTimeoutMs: 10 * 60 * 1000,
-  classifierCalls: 20,
-  readPaths: 32,
-  commands: 16,
   reason: 2_000,
   evidenceBytes: 16 * 1024,
   fingerprint: 512,
@@ -32,43 +28,19 @@ export const HARD_LIMITS = {
 } as const;
 
 /**
- * A path relative to the session's working directory. Lexical rules only; the evaluator
- * also resolves symlinks and rejects anything that ends up outside the working directory.
+ * What the check may do beyond reading. The approved script itself is the permission: it can
+ * read any file and use Pi's read-only tools. Commands and the classifier are switched on
+ * separately so the approval dialog can call them out.
  */
-export const RelativePath = Schema.String.check(
-  Schema.isNonEmpty(),
-  Schema.isMaxLength(512),
-  Schema.makeFilter((path) => {
-    if (path.includes("\0")) return "must not contain NUL";
-    if (/^([/\\~]|[A-Za-z]:)/.test(path)) return "must be relative to the working directory";
-    if (path.split(/[/\\]/).includes("..")) return "must not contain '..' segments";
-    return undefined;
+export const CheckPermissions = Schema.Struct({
+  /** Whether `tools.bash` exists. It runs any command, unattended, every iteration. */
+  commands: Schema.Boolean.annotate({
+    description: "Whether the check may run shell commands with tools.bash. Any command; not read-only",
   }),
-);
-
-/** An exact command line. One line, so the approval dialog shows everything that runs. */
-export const ApprovedCommand = Schema.String.check(
-  Schema.isNonEmpty(),
-  Schema.isMaxLength(2_000),
-  Schema.makeFilter((command) => /[\r\n\0]/.test(command) ? "must be a single line" : undefined),
-);
-
-/** What the check may reach. Enforced by CheckEvaluator's capabilities. */
-export const CapabilityPolicy = Schema.Struct({
-  /** Files or directories `tools.read` may read; a directory grants everything beneath it. */
-  readPaths: Schema.Array(RelativePath).check(Schema.isMaxLength(HARD_LIMITS.readPaths)).annotate({
-    description: "Files or directories, relative to the working directory, the check may read with tools.read",
-  }),
-  /** Command lines `tools.bash` may run, matched exactly. Running them is not read-only. */
-  commands: Schema.Array(ApprovedCommand).check(Schema.isMaxLength(HARD_LIMITS.commands)).annotate({
-    description: "Exact single-line commands the check may run with tools.bash; any other command is refused",
-  }),
-  /** Absent means no `models` global. */
-  classifier: Schema.optionalKey(Schema.Struct({
-    maxCallsPerCheck: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: HARD_LIMITS.classifierCalls })),
-  }).annotate({ description: "Omit unless the check calls models.classify" })),
+  /** Whether the `models` global exists. Spending is bounded by the check timeout and Spin's limits. */
+  classifier: Schema.Boolean.annotate({ description: "Whether the check may call classifier models with models.classify" }),
 });
-export type CapabilityPolicy = typeof CapabilityPolicy.Type;
+export type CheckPermissions = typeof CheckPermissions.Type;
 
 export const SpinLimits = Schema.Struct({
   maxIterations: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: HARD_LIMITS.maxIterations }))
@@ -80,9 +52,6 @@ export const SpinLimits = Schema.Struct({
     Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: HARD_LIMITS.maxUnchangedProgress }))
       .annotate({ description: "Stop after this many consecutive checks return the same progress.fingerprint" }),
   ),
-  /** The script's `timeout_ms` header may only lower it. */
-  checkTimeoutMs: Schema.Int.check(Schema.isBetween({ minimum: 1_000, maximum: HARD_LIMITS.checkTimeoutMs }))
-    .annotate({ description: "Deadline for one check run" }),
 });
 export type SpinLimits = typeof SpinLimits.Type;
 
@@ -96,7 +65,7 @@ export const SpinProposal = Schema.Struct({
   checkSource: Schema.String.check(Schema.isNonEmpty(), Schema.isMaxLength(HARD_LIMITS.checkSource)).annotate({
     description: "Codemode script body (top-level await and return) returning { verdict, reason, evidence?, progress? }",
   }),
-  capabilities: CapabilityPolicy,
+  permissions: CheckPermissions,
   limits: SpinLimits,
 });
 export type SpinProposal = typeof SpinProposal.Type;
@@ -129,7 +98,7 @@ export const SpinDefinition = Schema.Struct({
   task: SpinProposal.fields.task,
   carryMode: Schema.Literals(CARRY_MODES.map((mode) => mode.value)),
   check: CheckSnapshot,
-  capabilities: CapabilityPolicy,
+  permissions: CheckPermissions,
   limits: SpinLimits,
 });
 export type SpinDefinition = typeof SpinDefinition.Type;
