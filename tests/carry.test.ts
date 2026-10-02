@@ -12,7 +12,14 @@ import {
   type Theme,
 } from "@earendil-works/pi-coding-agent";
 import { test } from "vitest";
-import { buildCarryTranscript, CARRY_HEADER, CARRY_MODES, collectCarryEntries, type CarryMode } from "../src/carry-core.ts";
+import {
+  buildCarryTranscript,
+  CARRY_HEADER,
+  CARRY_MODES,
+  collectCarryEntries,
+  selectCarryMode,
+  type CarryMode,
+} from "../src/carry-core.ts";
 
 // Load through Pi's public extension loader (including its package aliases), as /reload does.
 // An empty agent directory keeps personal extensions out of the test.
@@ -418,4 +425,15 @@ test("renderer hides the carry header", async () => {
   )!.render(100).join("\n");
   assert.match(rendered, /Visible carried response/);
   assert.doesNotMatch(rendered, /historical messages/);
+});
+
+test("selectCarryMode offers every label and maps the choice back to its mode", async () => {
+  const offered: Array<[string, string[]]> = [];
+  const pick = (label: string | undefined) => (title: string, options: string[]) => {
+    offered.push([title, options]);
+    return Promise.resolve(label);
+  };
+  assert.equal(await selectCarryMode(pick(CARRY_MODES[2].label), "Title"), CARRY_MODES[2]);
+  assert.equal(await selectCarryMode(pick(undefined), "Title"), undefined);
+  assert.deepEqual(offered[0], ["Title", CARRY_MODES.map((mode) => mode.label)]);
 });

@@ -8,9 +8,9 @@ import { Box, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
 import {
   buildCarryTranscript,
   CARRY_HEADER,
-  CARRY_MODES,
   CARRY_TYPE,
   collectCarryEntries,
+  selectCarryMode,
 } from "../src/carry-core.ts";
 
 export default function carry(pi: ExtensionAPI) {
@@ -90,12 +90,10 @@ export default function carry(pi: ExtensionAPI) {
           }
           selectedId = targetId;
 
-          const choice = await ctx.ui.select("Carry what from this branch?", CARRY_MODES.map((mode) => mode.label));
+          const mode = await selectCarryMode((title, options) => ctx.ui.select(title, options), "Carry what from this branch?");
           ensureUnchanged();
           // Match /tree: escape from the mode menu returns to the same tree selection.
-          if (choice === undefined) continue;
-          const mode = CARRY_MODES.find((mode) => mode.label === choice);
-          if (!mode) return;
+          if (!mode) continue;
 
           const text = mode.value === "last" ? lastMessage : buildCarryTranscript(
             collectCarryEntries(sourceBranch, ctx.sessionManager.getBranch(targetId)),

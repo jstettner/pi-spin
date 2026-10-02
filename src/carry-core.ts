@@ -12,6 +12,17 @@ export const CARRY_MODES = [
 ] as const;
 
 export type CarryMode = typeof CARRY_MODES[number]["value"];
+export type CarryModeOption = typeof CARRY_MODES[number];
+
+// The carry mode picker shared by /carry and /spin. Takes Pi's ui.select so this module stays
+// free of UI imports. Undefined means the user dismissed the menu.
+export async function selectCarryMode(
+  select: (title: string, options: string[]) => Promise<string | undefined>,
+  title: string,
+): Promise<CarryModeOption | undefined> {
+  const choice = await select(title, CARRY_MODES.map((mode) => mode.label));
+  return CARRY_MODES.find((mode) => mode.label === choice);
+}
 
 // On the current branch, include the target: selecting a user message rewinds
 // BEFORE it and puts its text in the editor, where the user may clear it.
