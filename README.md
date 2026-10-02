@@ -21,51 +21,6 @@ When navigating to a different branch, modes 2 and 3 carry the abandoned source 
 
 No model call or automatic agent turn is triggered. Escape from the mode menu returns to the tree at the same selection; escape from the tree cancels.
 
-## Install
-
-From a local checkout:
-
-```sh
-pi install /path/to/pi-spin
-```
-
-To load only some of the extensions, use the object form in `~/.pi/agent/settings.json`:
-
-```json
-{
-  "packages": [
-    { "source": "/path/to/pi-spin", "extensions": ["extensions/carry.ts"] }
-  ]
-}
-```
-
-Run `/reload` after changing the package.
-
-### Migrating from a personal `carry` extension
-
-If you installed `/carry` earlier as a loose extension in `~/.pi/agent/extensions/carry/`, both copies would register `/carry`. The package keeps the same command, mode labels and `carry` message type, so carry entries in existing sessions keep rendering.
-
-1. Install the package as above.
-2. Disable the old copy while you try the package, by adding this to `~/.pi/agent/settings.json`:
-
-   ```json
-   { "extensions": ["-extensions/carry/index.ts"] }
-   ```
-
-3. Run `/reload` and check that `/carry` appears once in autocomplete.
-4. Once satisfied, delete `~/.pi/agent/extensions/carry/` and remove the override.
-
-## Development
-
-Requires Node 22.19+.
-
-```sh
-npm install
-npm run check   # typecheck + tests
-```
-
-Tests load the extensions through Pi's public extension loader with synthetic in-memory sessions.
-
 ## License
 
 MIT
