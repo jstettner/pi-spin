@@ -115,9 +115,8 @@ export const CheckVerdict = Schema.Struct({
   verdict: Verdict,
   reason: Schema.String.check(Schema.isNonEmpty(), Schema.isMaxLength(HARD_LIMITS.reason)),
   /** Computed by the check from what remains. Equal fingerprints mean no progress; Spin never compares them any other way. */
-  progressFingerprint: Schema.optionalKey(
-    Schema.String.check(Schema.isNonEmpty(), Schema.isMaxLength(HARD_LIMITS.fingerprint)),
-  ),
+  /** Empty is valid: joining zero remaining items gives "". */
+  progressFingerprint: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(HARD_LIMITS.fingerprint))),
 });
 export type CheckVerdict = typeof CheckVerdict.Type;
 

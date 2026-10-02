@@ -101,6 +101,9 @@ describe("verdict", () => {
         progressFingerprint: "a.ts:1|b.ts:4",
       } as const;
       assert.deepStrictEqual(yield* decodeVerdict(full), full);
+      // Nothing remaining joins to "".
+      const empty = { verdict: "done", reason: "Nothing remains.", progressFingerprint: "" } as const;
+      assert.deepStrictEqual(yield* decodeVerdict(empty), empty);
     }));
 
   it.effect("rejects malformed envelopes", () =>
@@ -112,7 +115,7 @@ describe("verdict", () => {
       assert.match(yield* verdictError({ verdict: "done", reason: "x".repeat(HARD_LIMITS.reason + 1) }), /reason/);
       assert.match(yield* verdictError({ verdict: "done", reason: "ok", summary: "typo for reason" }), /summary/);
       assert.match(yield* verdictError({ verdict: "done", reason: "ok", evidence: { errors: 3 } }), /evidence/);
-      assert.match(yield* verdictError({ verdict: "done", reason: "ok", progressFingerprint: "" }), /progressFingerprint/);
+      assert.match(yield* verdictError({ verdict: "done", reason: "ok", progressFingerprint: "x".repeat(HARD_LIMITS.fingerprint + 1) }), /progressFingerprint/);
       assert.match(yield* verdictError({ verdict: "done", reason: "ok", progress: { fingerprint: "a" } }), /progress/);
     }));
 });
