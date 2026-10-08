@@ -1,5 +1,7 @@
 # pi-spin
 
+[![CI](https://github.com/jstettner/pi-spin/actions/workflows/ci.yml/badge.svg)](https://github.com/jstettner/pi-spin/actions/workflows/ci.yml)
+
 A [Pi](https://pi.dev) package with two extensions that can be installed separately:
 
 - **`/carry`** moves conversation text to another position in the session tree.
